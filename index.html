@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trasy Rowerowe & Rankingi</title>
+    
+    <!-- Leaflet & Routing Machine CSS/JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #38bdf8;
+            --text: #f8fafc;
+            --border: #334155;
+            --muted: #94a3b8;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            padding: 20px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-height: 88vh;
+            overflow-y: auto;
+        }
+
+        h2 { color: var(--accent); font-size: 1.1rem; }
+        h3 { color: var(--text); font-size: 1rem; margin-bottom: 8px; }
+
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+
+        input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background-color: var(--bg-color);
+            color: var(--text);
+        }
+
+        button {
+            padding: 10px;
+            background-color: var(--accent);
+            color: #000;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        button:hover { opacity: 0.9; }
+
+        .route-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+        .route-item {
+            background-color: var(--bg-color);
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .route-item:hover { border-color: var(--accent); }
+        .route-item.active { border-color: var(--accent); background-color: #1e293b; }
+        .route-title { font-weight: bold; color: var(--accent); }
+
+        /* Tabela wyników */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; }
+        
+        tr:nth-child(1) td:first-child { color: #ffd700; font-weight: bold; } /* 1. Miejsce */
+        tr:nth-child(2) td:first-child { color: #c0c0c0; font-weight: bold; } /* 2. Miejsce */
+        tr:nth-child(3) td:first-child { color: #cd7f32; font-weight: bold; } /* 3. Miejsce */
+
+        #map { height: 88vh; border-radius: 12px; border: 1px solid var(--border); }
+        .time-inputs { display: flex; gap: 8px; }
+        .time-inputs input { flex: 1; }
+    </style>
+</head>
+<body>
+
+<div class="layout">
+    <div class="panel">
+        <!-- Section 1: Tworzenie trasy -->
+        <div>
+            <h2>1. Nowa trasa</h2>
+            <form id="saveRouteForm" class="form-group" style="margin-top: 8px;">
+                <input type="text" id="routeName" placeholder="Nazwa nowej trasy..." required>
+                <button type="submit">Zapisz nową trasę</button>
+            </form>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border);">
+
+        <!-- Section 2: Wybór trasy -->
+        <div>
+            <h2>2. Wybierz trasę</h2>
+            <ul id="routeList" class="route-list" style="margin-top: 8px;"></ul>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border);">
+
+        <!-- Section 3: Dodawanie wyniku & Ranking dla wybranej trasy -->
+        <div>
+            <h2 id="activeRouteHeader">3. Ranking trasy</h2>
+            
+            <form id="addScoreForm" class="form-group" style="margin-top: 10px;">
+                <input type="text" id="userName" placeholder="Twoja nazwa / Nick" required>
+                <div class="time-inputs">
+                    <input type="number" id="timeMin" placeholder="Minuty" min="0" required>
+                    <input type="number" id="timeSec" placeholder="Sekundy" min="0" max="59" required>
+                </div>
+                <button type="submit" id="scoreBtn">Dodaj swój czas</button>
+            </form>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Gracz</th>
+                        <th>Czas</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboardBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="map"></div>
+</div>
+
+<script>
+    // 1. Inicjalizacja Mapy
+    const map = L.map('map').setView([52.2297, 21.0122], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+    const routingControl = L.Routing.control({
+        waypoints: [L.latLng(52.2297, 21.0122), L.latLng(52.2450, 21.0300)],
+        router: L.Routing.osrmv1({ profile: 'biking' }),
+        routeWhileDragging: true
+    }).addTo(map);
+
+    // 2. Baza danych w localStorage (z przypisanymi czasami/wynikami)
+    let selectedRouteIndex = 0;
+    let savedRoutes = JSON.parse(localStorage.getItem('communityBikingRoutes')) || [
+        {
+            id: 1,
+            name: "Pętla Wisła",
+            start: { lat: 52.2297, lng: 21.0122 },
+            end: { lat: 52.2450, lng: 21.0300 },
+            scores: [
+                { user: "Michał", totalSeconds: 745, formattedTime: "12m 25s" },
+                { user: "Kasia", totalSeconds: 890, formattedTime: "14m 50s" }
+            ]
+        }
+    ];
+
+    // Funkcja pomocnicza do zamiany sekund na napis "MMm SSs"
+    function formatTime(min, sec) {
+        return `${min}m ${sec < 10 ? '0' : ''}${sec}s`;
+    }
+
+    // 3. Renderowanie listy tras
+    function renderRouteList() {
+        const listEl = document.getElementById('routeList');
+        listEl.innerHTML = '';
+
+        savedRoutes.forEach((route, index) => {
+            const li = document.createElement('li');
+            li.className = `route-item ${index === selectedRouteIndex ? 'active' : ''}`;
+            li.innerHTML = `<div class="route-title">${route.name}</div>`;
+            li.addEventListener('click', () => selectRoute(index));
+            listEl.appendChild(li);
+        });
+
+        renderLeaderboard();
+    }
+
+    // 4. Wybór trasy i załadowanie jej na mapie
+    function selectRoute(index) {
+        selectedRouteIndex = index;
+        const route = savedRoutes[index];
+
+        // Wyznaczenie nowej trasy na mapie
+        routingControl.setWaypoints([
+            L.latLng(route.start.lat, route.start.lng),
+            L.latLng(route.end.lat, route.end.lng)
+        ]);
+
+        renderRouteList();
+    }
+
+    // 5. Renderowanie tabeli wyników dla WYBRANEJ trasy
+    function renderLeaderboard() {
+        const route = savedRoutes[selectedRouteIndex];
+        const tbody = document.getElementById('leaderboardBody');
+        document.getElementById('activeRouteHeader').innerText = `3. Ranking: ${route.name}`;
+
+        // Sortowanie od najkrótszego czasu (najlepszego)
+        route.scores.sort((a, b) => a.totalSeconds - b.totalSeconds);
+
+        tbody.innerHTML = '';
+
+        if (route.scores.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--muted);">Brak wyników dla tej trasy. Bądź pierwszy!</td></tr>`;
+            return;
+        }
+
+        route.scores.forEach((entry, idx) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${idx + 1}</td>
+                <td>${escapeHTML(entry.user)}</td>
+                <td>${entry.formattedTime}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+    }
+
+    // 6. Obsługa dodawania nowej trasy
+    document.getElementById('saveRouteForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('routeName');
+        const waypoints = routingControl.getWaypoints();
+
+        if (waypoints.length < 2 || !waypoints[0].latLng) return alert("Wyznacz trasę!");
+
+        const newRoute = {
+            id: Date.now(),
+            name: nameInput.value.trim(),
+            start: { lat: waypoints[0].latLng.lat, lng: waypoints[0].latLng.lng },
+            end: { lat: waypoints[waypoints.length - 1].latLng.lat, lng: waypoints[waypoints.length - 1].latLng.lng },
+            scores: []
+        };
+
+        savedRoutes.push(newRoute);
+        selectedRouteIndex = savedRoutes.length - 1; // Przełącz na nową trasę
+        saveToLocalStorage();
+        nameInput.value = '';
+        renderRouteList();
+    });
+
+    // 7. Obsługa dodawania nowego czasu do aktualnej trasy
+    document.getElementById('addScoreForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const userInput = document.getElementById('userName');
+        const minInput = document.getElementById('timeMin');
+        const secInput = document.getElementById('timeSec');
+
+        const minutes = parseInt(minInput.value, 10) || 0;
+        const seconds = parseInt(secInput.value, 10) || 0;
+        const totalSeconds = (minutes * 60) + seconds;
+
+        if (totalSeconds <= 0) return alert("Wprowadź poprawny czas!");
+
+        const newScore = {
+            user: userInput.value.trim(),
+            totalSeconds: totalSeconds,
+            formattedTime: formatTime(minutes, seconds)
+        };
+
+        savedRoutes[selectedRouteIndex].scores.push(newScore);
+        saveToLocalStorage();
+
+        userInput.value = '';
+        minInput.value = '';
+        secInput.value = '';
+
+        renderLeaderboard();
+    });
+
+    function saveToLocalStorage() {
+        localStorage.setItem('communityBikingRoutes', JSON.stringify(savedRoutes));
+    }
+
+    // Inicjalizacja na start
+    renderRouteList();
+    selectRoute(0);
+</script>
+
+</body>
+</html>
