@@ -130,24 +130,34 @@
     }
 
     // Dodawanie nowej trasy do Supabase
-    document.getElementById('saveRouteForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const waypoints = routingControl.getWaypoints();
-        const name = document.getElementById('routeName').value;
+// Poprawiona obsługa zapisu trasy
+document.getElementById('saveRouteForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const waypoints = routingControl.getWaypoints();
+    const name = document.getElementById('routeName').value.trim();
 
-        const { data, error } = await db.from('routes').insert([{
-            name: name,
-            start_lat: waypoints[0].latLng.lat,
-            start_lng: waypoints[0].latLng.lng,
-            end_lat: waypoints[waypoints.length - 1].latLng.lat,
-            end_lng: waypoints[waypoints.length - 1].latLng.lng
-        }]).select();
+    if (waypoints.length < 2 || !waypoints[0].latLng) {
+        return alert("Wyznacz najpierw trasę na mapie!");
+    }
 
-        if (error) return alert("Błąd zapisu: " + error.message);
-        
-        document.getElementById('routeName').value = '';
-        await loadRoutes();
-        selectRoute(data[0]);
+    // 1. Zapisujemy nową trasę w bazie
+    const { error: insertError } = await db.from('routes').insert([{
+        name: name,
+        start_lat: waypoints[0].latLng.lat,
+        start_lng: waypoints[0].latLng.lng,
+        end_lat: waypoints[waypoints.length - 1].latLng.lat,
+        end_lng: waypoints[waypoints.length - 1].latLng.lng
+    }]);
+
+    if (insertError) {
+        console.error("Szczegóły błędu:", insertError);
+        return alert("Błąd zapisu: " + insertError.message);
+    }
+
+    // 2. Czyszczenie pola i odświeżenie listy z bazy
+    document.getElementById('routeName').value = '';
+    await loadRoutes();
+});
     });
 
     // Pobieranie wyników dla wybranej trasy
