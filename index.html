@@ -77,10 +77,10 @@
 <script>
     // --- KONFIGURACJA SUPABASE ---
 
-import { createClient } from '@supabase/supabase-js'
-const supabaseUrl = 'https://xabtvmuovybltqacyofe.supabase.co'
-const supabaseKey = process.env.SUPABASE_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
+import { createClient } from '@supabase/supabase-js';
+const supabaseUrl = 'https://xabtvmuovybltqacyofe.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Inicjalizacja Mapy
     const map = L.map('map').setView([52.2297, 21.0122], 12);
