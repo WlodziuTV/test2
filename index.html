@@ -76,13 +76,13 @@
 
 <script>
     // --- KONFIGURACJA SUPABASE ---
+    const SUPABASE_URL = "WKLEJ_TUTAJ_SWOJ_URL"; // Bez ukośnika / na końcu!
+    const SUPABASE_KEY = "WKLEJ_TUTAJ_SWOJ_KLUCZ_ANON";
+    
+    // Tworzenie klienta Supabase
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-import { createClient } from '@supabase/supabase-js';
-const supabaseUrl = 'https://xabtvmuovybltqacyofe.supabase.co';
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Inicjalizacja Mapy
+    // Inicjalizacja Mapy Leaflet
     const map = L.map('map').setView([52.2297, 21.0122], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
@@ -98,9 +98,12 @@ const supabase = createClient(supabaseUrl, supabaseKey);
     // Pobieranie tras z Supabase
     async function loadRoutes() {
         const { data, error } = await db.from('routes').select('*').order('id', { ascending: false });
-        if (error) return alert("Błąd pobierania tras: " + error.message);
+        if (error) {
+            console.error("Błąd pobierania tras:", error);
+            return;
+        }
         
-        routes = data;
+        routes = data || [];
         renderRouteList();
 
         if (routes.length > 0 && !selectedRoute) {
@@ -132,34 +135,30 @@ const supabase = createClient(supabaseUrl, supabaseKey);
     }
 
     // Dodawanie nowej trasy do Supabase
-// Poprawiona obsługa zapisu trasy
-document.getElementById('saveRouteForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const waypoints = routingControl.getWaypoints();
-    const name = document.getElementById('routeName').value.trim();
+    document.getElementById('saveRouteForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const waypoints = routingControl.getWaypoints();
+        const name = document.getElementById('routeName').value.trim();
 
-    if (waypoints.length < 2 || !waypoints[0].latLng) {
-        return alert("Wyznacz najpierw trasę na mapie!");
-    }
+        if (waypoints.length < 2 || !waypoints[0].latLng) {
+            return alert("Wyznacz najpierw trasę na mapie!");
+        }
 
-    // 1. Zapisujemy nową trasę w bazie
-    const { error: insertError } = await db.from('routes').insert([{
-        name: name,
-        start_lat: waypoints[0].latLng.lat,
-        start_lng: waypoints[0].latLng.lng,
-        end_lat: waypoints[waypoints.length - 1].latLng.lat,
-        end_lng: waypoints[waypoints.length - 1].latLng.lng
-    }]);
+        const { error } = await db.from('routes').insert([{
+            name: name,
+            start_lat: waypoints[0].latLng.lat,
+            start_lng: waypoints[0].latLng.lng,
+            end_lat: waypoints[waypoints.length - 1].latLng.lat,
+            end_lng: waypoints[waypoints.length - 1].latLng.lng
+        }]);
 
-    if (insertError) {
-        console.error("Szczegóły błędu:", insertError);
-        return alert("Błąd zapisu: " + insertError.message);
-    }
+        if (error) {
+            console.error("Błąd zapisu:", error);
+            return alert("Błąd zapisu w bazie: " + error.message);
+        }
 
-    // 2. Czyszczenie pola i odświeżenie listy z bazy
-    document.getElementById('routeName').value = '';
-    await loadRoutes();
-});
+        document.getElementById('routeName').value = '';
+        await loadRoutes();
     });
 
     // Pobieranie wyników dla wybranej trasy
@@ -173,26 +172,37 @@ document.getElementById('saveRouteForm').addEventListener('submit', async (e) =>
         const tbody = document.getElementById('leaderboardBody');
         tbody.innerHTML = '';
 
+        if (error) {
+            console.error("Błąd pobierania wyników:", error);
+            return;
+        }
+
         if (!data || data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;">Brak wyników.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;">Brak wyników. Bądź pierwszy!</td></tr>`;
             return;
         }
 
         data.forEach((entry, idx) => {
-            tbody.innerHTML += `<tr><td>${idx + 1}</td><td>${entry.username}</td><td>${entry.formatted_time}</td></tr>`;
+            tbody.innerHTML += `<tr><td>${idx + 1}</td><td>${escapeHTML(entry.username)}</td><td>${entry.formatted_time}</td></tr>`;
         });
+    }
+
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
     }
 
     // Dodawanie wyniku do Supabase
     document.getElementById('addScoreForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!selectedRoute) return alert("Wybierz trasę!");
+        if (!selectedRoute) return alert("Najpierw wybierz trasę z listy!");
 
-        const user = document.getElementById('userName').value;
+        const user = document.getElementById('userName').value.trim();
         const min = parseInt(document.getElementById('timeMin').value, 10) || 0;
         const sec = parseInt(document.getElementById('timeSec').value, 10) || 0;
         const total = (min * 60) + sec;
         const formatted = `${min}m ${sec < 10 ? '0' : ''}${sec}s`;
+
+        if (total <= 0) return alert("Wprowadź prawidłowy czas!");
 
         const { error } = await db.from('scores').insert([{
             route_id: selectedRoute.id,
@@ -201,7 +211,10 @@ document.getElementById('saveRouteForm').addEventListener('submit', async (e) =>
             formatted_time: formatted
         }]);
 
-        if (error) return alert("Błąd zapisu czasów: " + error.message);
+        if (error) {
+            console.error("Błąd zapisu czasu:", error);
+            return alert("Błąd zapisu czasów: " + error.message);
+        }
 
         document.getElementById('userName').value = '';
         document.getElementById('timeMin').value = '';
@@ -209,7 +222,7 @@ document.getElementById('saveRouteForm').addEventListener('submit', async (e) =>
         loadScores(selectedRoute.id);
     });
 
-    // Start aplikacji
+    // Inicjalizacja przy wystartowaniu strony
     loadRoutes();
 </script>
 
